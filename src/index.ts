@@ -73,7 +73,7 @@ app.post('/process', async (req, res) => {
     if (!projectId || process.env.NODE_ENV === 'development') {
       console.log('[AI Worker] Running in development mode or GCP_PROJECT_ID is missing. Simulating AI processing...');
       await new Promise((resolve) => setTimeout(resolve, 10000));
-      
+
       if (isPdf) {
         summary = `### Executive Summary (Simulated)\n\nThis PDF document **"${fileId}"** was analyzed successfully using simulated Gemini intelligence.\n\n#### Key Findings:\n*   **Cloud Architecture**: Decoupling web servers from compute workers avoids connection terminations.\n*   **Server-Sent Events**: Delivers instant, multiplexed pushes directly to browsers under HTTP/2.\n*   **State Integrity**: Client states align automatically upon webhook database commits.`;
         transcription = 'N/A (PDF Document File)';
@@ -112,7 +112,7 @@ app.post('/process', async (req, res) => {
       const responseResult = await generativeModel.generateContent(request);
       const response = await responseResult.response;
       const responseText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-
+      //Test
       if (!responseText) {
         throw new Error('Empty response received from Gemini');
       }
@@ -125,7 +125,7 @@ app.post('/process', async (req, res) => {
         const splitIndex = responseText.toLowerCase().indexOf('transcript:');
         const alternateSplitIndex = responseText.toLowerCase().indexOf('## transcript');
         const targetIndex = splitIndex !== -1 ? splitIndex : (alternateSplitIndex !== -1 ? alternateSplitIndex : -1);
-        
+
         if (targetIndex !== -1) {
           summary = responseText.substring(0, targetIndex).trim();
           transcription = responseText.substring(targetIndex).trim();
