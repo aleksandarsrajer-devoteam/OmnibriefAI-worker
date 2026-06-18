@@ -1,0 +1,36 @@
+steps:
+  # 1. Build the AI Worker Docker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}/ai-worker:${COMMIT_SHA}'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+
+  # 2. Push the Docker Image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}/ai-worker:${COMMIT_SHA}'
+
+  # 3. Deploy the container to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}/ai-worker:${COMMIT_SHA}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+
+images:
+  - '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}/ai-worker:${COMMIT_SHA}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
