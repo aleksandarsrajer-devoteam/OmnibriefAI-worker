@@ -112,7 +112,6 @@ app.post('/process', async (req, res) => {
       const responseResult = await generativeModel.generateContent(request);
       const response = await responseResult.response;
       const responseText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-      //Test
       if (!responseText) {
         throw new Error('Empty response received from Gemini');
       }
