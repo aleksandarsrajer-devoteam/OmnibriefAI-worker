@@ -14,10 +14,10 @@ app.use(express.json());
 
 const auth = new GoogleAuth();
 const projectId = (process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)?.trim();
-const region = (process.env.REGION || 'us-central1').trim();
+const vertexRegion = (process.env.VERTEX_AI_REGION || 'us-central1').trim();
 
 // Initialize Vertex AI SDK client
-const vertexAI = new VertexAI({ project: projectId, location: region });
+const vertexAI = new VertexAI({ project: projectId, location: vertexRegion });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
