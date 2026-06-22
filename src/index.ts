@@ -15,10 +15,8 @@ app.use(express.json());
 const auth = new GoogleAuth();
 const projectId = (process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)?.trim();
 const vertexRegion = (process.env.VERTEX_AI_REGION || 'us-central1').trim();
-
 // Initialize Vertex AI SDK client
 const vertexAI = new VertexAI({ project: projectId, location: vertexRegion });
-
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy' });
@@ -79,10 +77,10 @@ app.post('/process', async (req, res) => {
       const fileUri = `gs://${bucket}/${cleanPath}`;
       const mimeType = isPdf ? 'application/pdf' : 'video/mp4';
 
-      console.log(`[AI Worker] Invoking Vertex AI Gemini 1.5 Flash for file: ${fileUri} (Mime Type: ${mimeType})`);
+      console.log(`[AI Worker] Invoking Vertex AI Gemini 2.5 Flash for file: ${fileUri} (Mime Type: ${mimeType})`);
 
       const generativeModel = vertexAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
       });
 
       const filePart = {
