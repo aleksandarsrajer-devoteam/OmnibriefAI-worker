@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import axios from 'axios';
 import { GoogleAuth } from 'google-auth-library';
 import { VertexAI } from '@google-cloud/vertexai';
 
@@ -14,34 +13,11 @@ app.use(cors());
 app.use(express.json());
 
 const auth = new GoogleAuth();
-const projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-const region = process.env.REGION || 'us-central1';
+const projectId = (process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)?.trim();
+const region = (process.env.REGION || 'us-central1').trim();
 
 // Initialize Vertex AI SDK client
 const vertexAI = new VertexAI({ project: projectId, location: region });
-
-/**
- * Helper to fetch a Google-signed OIDC ID Token from the metadata server.
- * Uses the Web Backend's URL as the target audience.
- * If running locally outside GCP, it falls back to a mock development token.
- */
-async function getOidcToken(targetAudience: string): Promise<string> {
-  try {
-    const client = await auth.getIdTokenClient(targetAudience);
-    const headers = await client.getRequestHeaders() as any;
-    const authHeader = headers['Authorization'] || headers['authorization'];
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7);
-    }
-    throw new Error('Authorization header not returned by auth client');
-  } catch (err: any) {
-    console.error('[AI Worker] GCP Metadata Server OIDC token request failed:', err.message || err);
-    if (err.stack) {
-      console.error(err.stack);
-    }
-    return 'mock-local-development-system-token';
-  }
-}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -51,8 +27,8 @@ app.get('/health', (req, res) => {
 /**
  * POST /process
  * Triggered by Google Cloud Tasks.
- * Simulates heavy AI transcription and summarization of a file.
- * Returns results back to the Web Backend's callbackUrl.
+ * Orchestrates heavy AI transcription and summarization of a file.
+ * Securely returns results back to the Web Backend's callbackUrl using Google OIDC.
  */
 app.post('/process', async (req, res) => {
   const { fileId, userId, bucket, storagePath, callbackUrl, fileType } = req.body;
@@ -73,7 +49,6 @@ app.post('/process', async (req, res) => {
 
   console.log(`[AI Worker] Starting AI processing for file: ${fileId} (User: ${userId})`);
 
-  // Process synchronously to let Cloud Tasks track completion state
   try {
     // 1. Generate AI results using Vertex AI Gemini
     const fileTypeLower = (fileType || '').toLowerCase();
@@ -91,20 +66,23 @@ app.post('/process', async (req, res) => {
       await new Promise((resolve) => setTimeout(resolve, 10000));
 
       if (isPdf) {
-        summary = `### Executive Summary (Simulated)\n\nThis PDF document **"${fileId}"** was analyzed successfully using simulated Gemini intelligence.\n\n#### Key Findings:\n*   **Cloud Architecture**: Decoupling web servers from compute workers avoids connection terminations.\n*   **Server-Sent Events**: Delivers instant, multiplexed pushes directly to browsers under HTTP/2.\n*   **State Integrity**: Client states align automatically upon webhook database commits.`;
+        summary = `### Executive Summary (Simulated)\n\nThis PDF document **"${fileId}"** was analyzed successfully using simulated Gemini intelligence.\n\n#### Key Findings:\n* **Cloud Architecture**: Decoupling web servers from compute workers avoids connection terminations.\n* **Server-Sent Events**: Delivers instant, multiplexed pushes directly to browsers under HTTP/2.\n* **State Integrity**: Client states align automatically upon webhook database commits.`;
         transcription = 'N/A (PDF Document File)';
       } else {
-        summary = `### Video Summary (Simulated)\n\nThis video was transcribed and analyzed successfully. Key discussion points:\n*   **Decoupled Workers**: Offloading Vertex AI requests ensures low-latency REST APIs for web users.\n*   **Cloud Tasks**: Provides rate-limiting (e.g. 5 concurrent dispatches) to protect backend resource constraints.\n*   **Heartbeat Pings**: Keeps connection sockets open across proxies under Google Cloud's GFE.`;
+        summary = `### Video Summary (Simulated)\n\nThis video was transcribed and analyzed successfully. Key discussion points:\n* **Decoupled Workers**: Offloading Vertex AI requests ensures low-latency REST APIs for web users.\n* **Cloud Tasks**: Provides rate-limiting (e.g. 5 concurrent dispatches) to protect backend resource constraints.\n* **Heartbeat Pings**: Keeps connection sockets open across proxies under Google Cloud's GFE.`;
         transcription = `[00:01] Hello and welcome to OmniBrief AI.\n[00:05] Today we're configuring Server-Sent Events with Cloud Tasks.\n[00:10] The worker does the heavy processing and sends a callback to the backend when done.`;
       }
       console.log('[AI Worker] Simulated processing complete.');
     } else {
+      // Clean up storage path to avoid malformed double slashes in the URI
+      const cleanPath = storagePath.startsWith('/') ? storagePath.substring(1) : storagePath;
+      const fileUri = `gs://${bucket}/${cleanPath}`;
       const mimeType = isPdf ? 'application/pdf' : 'video/mp4';
-      const fileUri = `gs://${bucket}/${storagePath}`;
-      console.log(`[AI Worker] Invoking Vertex AI Gemini 2.5 Flash for file: ${fileUri} (Mime Type: ${mimeType})`);
+
+      console.log(`[AI Worker] Invoking Vertex AI Gemini 1.5 Flash for file: ${fileUri} (Mime Type: ${mimeType})`);
 
       const generativeModel = vertexAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash',
       });
 
       const filePart = {
@@ -119,9 +97,7 @@ app.post('/process', async (req, res) => {
         : "Analyze this video file. Provide two sections in your response:\n1. Summary: A detailed summary of the video content.\n2. Transcript: A chronological transcription of the speech in the video with timestamps.\nFormat your response in Markdown.";
 
       console.log(`[AI Worker] Sending prompt to Gemini: "${promptText}"`);
-      const promptPart = {
-        text: promptText,
-      };
+      const promptPart = { text: promptText };
 
       const request = {
         contents: [{ role: 'user', parts: [filePart, promptPart] }],
@@ -143,7 +119,6 @@ app.post('/process', async (req, res) => {
 
       if (!isPdf) {
         console.log('[AI Worker] Parsing Gemini response to separate Summary and Transcription blocks...');
-        // Attempt to extract transcription block from Gemini markdown response
         const splitIndex = responseText.toLowerCase().indexOf('transcript:');
         const alternateSplitIndex = responseText.toLowerCase().indexOf('## transcript');
         const targetIndex = splitIndex !== -1 ? splitIndex : (alternateSplitIndex !== -1 ? alternateSplitIndex : -1);
@@ -158,29 +133,26 @@ app.post('/process', async (req, res) => {
       }
     }
 
-    // 3. Obtain Google OIDC token for callback authorization
-    // The target audience is the base URL of the callback (i.e. our backend service URL)
+    // 2. Authenticate and Execute Secure Callback to Web Backend
+    // Target audience is derived from the base origin of your callback endpoint
     const audience = new URL(callbackUrl).origin;
-    console.log(`[AI Worker] Fetching Google OIDC ID token for audience: ${audience}`);
-    const token = await getOidcToken(audience);
-    console.log(`[AI Worker] OIDC ID Token retrieved successfully (length: ${token.length})`);
+    console.log(`[AI Worker] Creating authenticated OIDC client for backend audience: ${audience}`);
 
-    // 4. Secure callback to Web Backend
-    console.log(`[AI Worker] Sending POST callback to Web Backend at: ${callbackUrl}`);
-    const response = await axios.post(
-      callbackUrl,
-      {
+    const client = await auth.getIdTokenClient(audience);
+
+    console.log(`[AI Worker] Dispatching secure POST callback to Web Backend via Auth Client: ${callbackUrl}`);
+    const response = await client.request({
+      url: callbackUrl,
+      method: 'POST',
+      data: {
         userId,
         summary,
         transcription,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      }
-    );
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
     console.log(`[AI Worker] Callback completed successfully. HTTP status response: ${response.status}`);
     return res.status(200).json({
@@ -192,6 +164,8 @@ app.post('/process', async (req, res) => {
   } catch (error: any) {
     console.error('[AI Worker] Critical Error during processing or callback:');
     console.error(`  - Message: ${error.message || error}`);
+
+    // Google's underlying gaxios client attaches response logs to error.response
     if (error.response) {
       console.error(`  - Callback Response Error Status: ${error.response.status}`);
       console.error('  - Callback Response Error Data:', JSON.stringify(error.response.data));
@@ -199,7 +173,8 @@ app.post('/process', async (req, res) => {
     if (error.stack) {
       console.error(error.stack);
     }
-    // Return a 500 error so that Cloud Tasks automatically retries the task later
+
+    // Return a 500 error so that Cloud Tasks automatically schedules a retry
     return res.status(500).json({
       status: 'error',
       message: error.message || 'Internal processing error',
